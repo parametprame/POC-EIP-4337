@@ -313,7 +313,7 @@ contract EntryPoint is
         uint256 opIndex,
         UserOperation calldata op,
         UserOpInfo memory opInfo,
-        uint256 requiredPrefund
+        uint256 /* requiredPrefund */
     )
         internal
         returns (
@@ -329,35 +329,25 @@ contract EntryPoint is
             address paymaster = mUserOp.paymaster;
             numberMarker();
             uint256 missingAccountFunds = 0;
-            if (paymaster == address(0)) {
-                uint256 bal = balanceOf(sender);
-                missingAccountFunds = bal > requiredPrefund
-                    ? 0
-                    : requiredPrefund - bal;
-            }
-            try
-                IAccount(sender).validateUserOp{
-                    gas: mUserOp.verificationGasLimit
-                }(op, opInfo.userOpHash, missingAccountFunds)
-            returns (uint256 _validationData) {
-                validationData = _validationData;
-            } catch Error(string memory revertReason) {
-                revert FailedOp(
-                    opIndex,
-                    string.concat("AA23 reverted: ", revertReason)
-                );
-            } catch {
-                revert FailedOp(opIndex, "AA23 reverted (or OOG)");
-            }
-            if (paymaster == address(0)) {
-                DepositInfo storage senderInfo = deposits[sender];
-                uint256 deposit = senderInfo.deposit;
-                if (requiredPrefund > deposit) {
-                    revert FailedOp(opIndex, "AA21 didn't pay prefund");
+
+            if (paymaster != address(0)) {
+                try
+                    IAccount(sender).validateUserOp{
+                        gas: mUserOp.verificationGasLimit
+                    }(op, opInfo.userOpHash, missingAccountFunds)
+                returns (uint256 _validationData) {
+                    validationData = _validationData;
+                } catch Error(string memory revertReason) {
+                    revert FailedOp(
+                        opIndex,
+                        string.concat("AA23 reverted: ", revertReason)
+                    );
+                } catch {
+                    revert FailedOp(opIndex, "AA23 reverted (or OOG)");
                 }
-                senderInfo.deposit = uint112(deposit - requiredPrefund);
+
+                gasUsedByValidateAccountPrepayment = preGas - gasleft();
             }
-            gasUsedByValidateAccountPrepayment = preGas - gasleft();
         }
     }
 

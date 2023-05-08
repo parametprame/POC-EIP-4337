@@ -45,10 +45,10 @@ abstract contract BaseAccount is IAccount {
         bytes32 userOpHash,
         uint256 missingAccountFunds
     ) external virtual override returns (uint256 validationData) {
+        (missingAccountFunds);
         _requireFromEntryPoint();
         validationData = _validateSignature(userOp, userOpHash);
         _validateNonce(userOp.nonce);
-        _payPrefund(missingAccountFunds);
     }
 
     /**
@@ -96,23 +96,4 @@ abstract contract BaseAccount is IAccount {
      * solhint-disable-next-line no-empty-blocks
      */
     function _validateNonce(uint256 nonce) internal view virtual {}
-
-    /**
-     * sends to the entrypoint (msg.sender) the missing funds for this transaction.
-     * subclass MAY override this method for better funds management
-     * (e.g. send to the entryPoint more than the minimum required, so that in future transactions
-     * it will not be required to send again)
-     * @param missingAccountFunds the minimum value this method should send the entrypoint.
-     *  this value MAY be zero, in case there is enough deposit, or the userOp has a paymaster.
-     */
-    function _payPrefund(uint256 missingAccountFunds) internal virtual {
-        if (missingAccountFunds != 0) {
-            (bool success, ) = payable(msg.sender).call{
-                value: missingAccountFunds,
-                gas: type(uint256).max
-            }("");
-            (success);
-            //ignore failure (its EntryPoint's job to verify, not account.)
-        }
-    }
 }
