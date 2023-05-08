@@ -73,4 +73,23 @@ abstract contract BasePaymaster is IPaymaster, Ownable {
     function _requireFromEntryPoint() internal virtual {
         require(msg.sender == address(entryPoint), "Sender not EntryPoint");
     }
+
+    /**
+     * add a deposit for this paymaster, used for paying for transaction fees
+     */
+    function deposit() public payable {
+        entryPoint.depositTo{value: msg.value}(address(this));
+    }
+
+    /**
+     * withdraw value from the deposit
+     * @param withdrawAddress target to send to
+     * @param amount to withdraw
+     */
+    function withdrawTo(
+        address payable withdrawAddress,
+        uint256 amount
+    ) public onlyOwner {
+        entryPoint.withdrawTo(withdrawAddress, amount);
+    }
 }
