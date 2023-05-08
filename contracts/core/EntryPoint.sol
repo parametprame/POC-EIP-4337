@@ -221,6 +221,41 @@ contract EntryPoint is
             keccak256(abi.encode(userOp.hash(), address(this), block.chainid));
     }
 
+    /// @inheritdoc IEntryPoint
+    function simulateHandleOp(
+        UserOperation calldata op,
+        address target,
+        bytes calldata targetCallData
+    ) external override {
+        UserOpInfo memory opInfo;
+        _simulationOnlyValidations(op);
+        (
+            uint256 validationData,
+            uint256 paymasterValidationData
+        ) = _validatePrepayment(0, op, opInfo);
+        ValidationData memory data = _intersectTimeRange(
+            validationData,
+            paymasterValidationData
+        );
+
+        numberMarker();
+        uint256 paid = _executeUserOp(0, op, opInfo);
+        numberMarker();
+        bool targetSuccess;
+        bytes memory targetResult;
+        if (target != address(0)) {
+            (targetSuccess, targetResult) = target.call(targetCallData);
+        }
+        revert ExecutionResult(
+            opInfo.preOpGas,
+            paid,
+            data.validAfter,
+            data.validUntil,
+            targetSuccess,
+            targetResult
+        );
+    }
+
     /**
      * copy general fields from userOp into the memory opInfo structure.
      */
@@ -245,6 +280,60 @@ contract EntryPoint is
         } else {
             mUserOp.paymaster = address(0);
         }
+    }
+
+    function simulateValidation(UserOperation calldata userOp) external {
+        UserOpInfo memory outOpInfo;
+        _simulationOnlyValidations(userOp);
+        (
+            uint256 validationData,
+            uint256 paymasterValidationData
+        ) = _validatePrepayment(0, userOp, outOpInfo);
+        StakeInfo memory paymasterInfo = _getStakeInfo(
+            outOpInfo.mUserOp.paymaster
+        );
+        StakeInfo memory senderInfo = _getStakeInfo(outOpInfo.mUserOp.sender);
+        StakeInfo memory factoryInfo;
+        {
+            bytes calldata initCode = userOp.initCode;
+            address factory = initCode.length >= 20
+                ? address(bytes20(initCode[0:20]))
+                : address(0);
+            factoryInfo = _getStakeInfo(factory);
+        }
+        ValidationData memory data = _intersectTimeRange(
+            validationData,
+            paymasterValidationData
+        );
+        address aggregator = data.aggregator;
+        bool sigFailed = aggregator == address(1);
+        ReturnInfo memory returnInfo = ReturnInfo(
+            outOpInfo.preOpGas,
+            outOpInfo.prefund,
+            sigFailed,
+            data.validAfter,
+            data.validUntil,
+            getMemoryBytesFromOffset(outOpInfo.contextOffset)
+        );
+        if (aggregator != address(0) && aggregator != address(1)) {
+            AggregatorStakeInfo memory aggregatorInfo = AggregatorStakeInfo(
+                aggregator,
+                _getStakeInfo(aggregator)
+            );
+            revert ValidationResultWithAggregation(
+                returnInfo,
+                senderInfo,
+                factoryInfo,
+                paymasterInfo,
+                aggregatorInfo
+            );
+        }
+        revert ValidationResult(
+            returnInfo,
+            senderInfo,
+            factoryInfo,
+            paymasterInfo
+        );
     }
 
     function _getRequiredPrefund(
@@ -302,6 +391,47 @@ contract EntryPoint is
     function getSenderAddress(bytes calldata initCode) public {
         address sender = senderCreator.createSender(initCode);
         revert SenderAddressResult(sender);
+    }
+
+    function _simulationOnlyValidations(
+        UserOperation calldata userOp
+    ) internal view {
+        // solhint-disable-next-line no-empty-blocks
+        try
+            this._validateSenderAndPaymaster(
+                userOp.initCode,
+                userOp.sender,
+                userOp.paymasterAndData
+            )
+        {} catch Error(string memory revertReason) {
+            if (bytes(revertReason).length != 0) {
+                revert FailedOp(0, revertReason);
+            }
+        }
+    }
+
+    /**
+     * Called only during simulation.
+     * This function always reverts to prevent warm/cold storage differentiation in simulation vs execution.
+     */
+    function _validateSenderAndPaymaster(
+        bytes calldata initCode,
+        address sender,
+        bytes calldata paymasterAndData
+    ) external view {
+        if (initCode.length == 0 && sender.code.length == 0) {
+            // it would revert anyway. but give a meaningful message
+            revert("AA20 account not deployed");
+        }
+        if (paymasterAndData.length >= 20) {
+            address paymaster = address(bytes20(paymasterAndData[0:20]));
+            if (paymaster.code.length == 0) {
+                // it would revert anyway. but give a meaningful message
+                revert("AA30 paymaster not deployed");
+            }
+        }
+        // always revert
+        revert("");
     }
 
     /**
