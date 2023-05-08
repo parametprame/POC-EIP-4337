@@ -54,11 +54,11 @@ contract Paymaster is BasePaymaster {
         bytes calldata paymasterAndData = userOp.paymasterAndData;
 
         require(
-            paymasterAndData.length == 20 + 20,
+            paymasterAndData.length == 20,
             "DepositPaymaster: paymasterAndData must specify address of paymaster"
         );
 
-        address paymaster = address(bytes20(paymasterAndData[20:]));
+        address paymaster = address(bytes20(paymasterAndData[:20]));
 
         require(
             entryPoint.balanceOf(paymaster) >= requiredPreFund,
